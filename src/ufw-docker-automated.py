@@ -6,6 +6,21 @@ from ipaddress import ip_network
 client = docker.from_env()
 
 
+def delete_ufw_rule(match, container):
+    awk = "'{print $2}'"
+    ufw_status = subprocess.run(
+        [f"ufw status numbered | grep {match} | awk -F \"[][]\" {awk} "],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+        shell=True)
+
+    # Removing any ufw rules that contains the container ip or exposed ports in it
+    ufw_num = ufw_status.stdout.strip().split("\n")[0]
+    ufw_delete = subprocess.run([f"yes y | ufw delete {ufw_num}"],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                            shell=True)
+    ufw_delete_result = ufw_delete.stdout.split("\n")[1].strip()
+    print(f"ufw-docker-automated: Cleaning UFW rule: container {container.name} deleted rule '{ufw_delete_result}'")
+
 def manage_ufw():
     for event in client.events(decode=True):
 
@@ -21,13 +36,19 @@ def manage_ufw():
             container_network = container.attrs['HostConfig']['NetworkMode']
             container_ip = None
             ufw_managed = None
+            ufw_command = "ufw route"
             ufw_from = ["any"]
             ufw_deny_outgoing = None
             ufw_to = None
 
             container_port_dict = container.attrs['NetworkSettings']['Ports'].items()
 
-            if container_network != 'default':
+            if container_network == 'host':
+                # host network
+                container_port_dict = {key: True for key in container.attrs['Config']['ExposedPorts'].keys()}.items()
+                container_ip = "any"
+                ufw_command = "ufw"
+            elif container_network != 'default':
                 # compose network
                 container_ip = container.attrs['NetworkSettings']['Networks'][container_network]['IPAddress']
             else:
@@ -46,7 +67,7 @@ def manage_ufw():
                         ufw_from = None
                         pass
 
-                if 'UFW_DENY_OUTGOING' in container.labels:
+                if container_network != 'host' and 'UFW_DENY_OUTGOING' in container.labels:
                     ufw_deny_outgoing = container.labels.get('UFW_DENY_OUTGOING').capitalize()
 
                 if ufw_deny_outgoing == 'True' and 'UFW_TO' in container.labels:
@@ -65,7 +86,7 @@ def manage_ufw():
                         for source in ufw_from:
                             # Allow incomming requests from whitelisted IPs or Subnets to the container
                             print(f"ufw-docker-automated: Adding UFW rule: allow from {source} to container {container.name} on port {container_port_num}/{container_port_protocol}")
-                            subprocess.run([f"ufw route allow proto {container_port_protocol} \
+                            subprocess.run([f"{ufw_command} allow proto {container_port_protocol} \
                                                 from {source} \
                                                 to {container_ip} port {container_port_num}"],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
@@ -73,7 +94,7 @@ def manage_ufw():
                             if ufw_deny_outgoing == 'True':
                                 # Allow the container to reply back to the client (if outgoing requests are denied by default)
                                 print(f"ufw-docker-automated: Adding UFW rule: allow reply from container {container.name} on port {container_port_num}/{container_port_protocol} to {source}")
-                                subprocess.run([f"ufw route allow proto {container_port_protocol} \
+                                subprocess.run([f"{ufw_command} allow proto {container_port_protocol} \
                                                     from {container_ip} port {container_port_num} \
                                                     to {source}"],
                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
@@ -84,36 +105,27 @@ def manage_ufw():
                         for destination in ufw_to:
                             # Allow outgoing requests from the container to whitelisted IPs or Subnets
                             print(f"ufw-docker-automated: Adding UFW rule: allow outgoing from container {container.name} to {destination}")
-                            subprocess.run([f"ufw route allow from {container_ip} to {destination}"],
+                            subprocess.run([f"{ufw_command} allow from {container_ip} to {destination}"],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                                         shell=True)
                     # Deny any other outgoing requests
                     print(f"ufw-docker-automated: Adding UFW rule: deny outgoing from container {container.name} to any")
-                    subprocess.run([f"ufw route deny from {container_ip} to any"],
+                    subprocess.run([f"{ufw_command} deny from {container_ip} to any"],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                                 shell=True)
 
             if event_type == 'kill' and ufw_managed == 'True':
-                ufw_length = subprocess.run(
-                    [f"ufw status numbered | grep {container_ip} | wc -l"],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                    shell=True)
-
-                for i in range(int(ufw_length.stdout.strip().split("\n")[0])):
-                    awk = "'{print $2}'"
-                    ufw_status = subprocess.run(
-                        [f"ufw status numbered | grep {container_ip} | awk -F \"[][]\" {awk} "],
+                if container_network == 'host':
+                    for key, value in container_port_dict:
+                        delete_ufw_rule(match=key, container=container)
+                else:
+                    ufw_length = subprocess.run(
+                        [f"ufw status numbered | grep {container_ip} | wc -l"],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                         shell=True)
 
-                    # Removing any ufw rules that contains the container ip in it
-                    ufw_num = ufw_status.stdout.strip().split("\n")[0]
-                    ufw_delete = subprocess.run([f"yes y | ufw delete {ufw_num}"],
-                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                            shell=True)
-                    ufw_delete_result = ufw_delete.stdout.split("\n")[1].strip()
-                    print(f"ufw-docker-automated: Cleaning UFW rule: container {container.name} deleted rule '{ufw_delete_result}'")
-
+                    for _ in range(int(ufw_length.stdout.strip().split("\n")[0])):
+                        delete_ufw_rule(match=container_ip, container=container)
 
 if __name__ == '__main__':
     manage_ufw()
