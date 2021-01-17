@@ -21,6 +21,10 @@ def delete_ufw_rule(match, container):
     ufw_delete_result = ufw_delete.stdout.split("\n")[1].strip()
     print(f"ufw-docker-automated: Cleaning UFW rule: container {container.name} deleted rule '{ufw_delete_result}'")
 
+def add_ufw_rule(ufw_command, ufw_pathway, ufw_arguments):
+    ufw_rule = f"{ufw_command} {ufw_pathway} {ufw_arguments}"
+    subprocess.run([ufw_rule], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, shell=True)
+
 def manage_ufw():
     for event in client.events(decode=True):
 
@@ -37,6 +41,8 @@ def manage_ufw():
             container_ip = None
             ufw_managed = None
             ufw_command = "ufw route"
+            ufw_allow_arg = "allow"
+            ufw_deny_arg = "deny"
             ufw_from = ["any"]
             ufw_deny_outgoing = None
             ufw_to = None
@@ -48,6 +54,8 @@ def manage_ufw():
                 container_port_dict = {key: True for key in container.attrs['Config']['ExposedPorts'].keys()}.items()
                 container_ip = "any"
                 ufw_command = "ufw"
+                ufw_allow_arg = "allow out"
+                ufw_deny_arg = "deny out"
             elif container_network != 'default':
                 # compose network
                 container_ip = container.attrs['NetworkSettings']['Networks'][container_network]['IPAddress']
@@ -67,7 +75,7 @@ def manage_ufw():
                         ufw_from = None
                         pass
 
-                if container_network != 'host' and 'UFW_DENY_OUTGOING' in container.labels:
+                if 'UFW_DENY_OUTGOING' in container.labels:
                     ufw_deny_outgoing = container.labels.get('UFW_DENY_OUTGOING').capitalize()
 
                 if ufw_deny_outgoing == 'True' and 'UFW_TO' in container.labels:
@@ -86,38 +94,35 @@ def manage_ufw():
                         for source in ufw_from:
                             # Allow incomming requests from whitelisted IPs or Subnets to the container
                             print(f"ufw-docker-automated: Adding UFW rule: allow from {source} to container {container.name} on port {container_port_num}/{container_port_protocol}")
-                            subprocess.run([f"{ufw_command} allow proto {container_port_protocol} \
-                                                from {source} \
-                                                to {container_ip} port {container_port_num}"],
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                        shell=True)
+                            ufw_arguments = f"proto {container_port_protocol} from {source} to {container_ip} port {container_port_num}"
+                            add_ufw_rule(ufw_command, "allow", ufw_arguments)
                             if ufw_deny_outgoing == 'True':
                                 # Allow the container to reply back to the client (if outgoing requests are denied by default)
                                 print(f"ufw-docker-automated: Adding UFW rule: allow reply from container {container.name} on port {container_port_num}/{container_port_protocol} to {source}")
-                                subprocess.run([f"{ufw_command} allow proto {container_port_protocol} \
-                                                    from {container_ip} port {container_port_num} \
-                                                    to {source}"],
-                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                            shell=True)
-
+                                ufw_arguments = f"proto {container_port_protocol} from {container_ip} port {container_port_num} to {source}"
+                                add_ufw_rule(ufw_command, ufw_allow_arg, ufw_arguments)
                 if ufw_deny_outgoing == 'True':
                     if ufw_to:
                         for destination in ufw_to:
                             # Allow outgoing requests from the container to whitelisted IPs or Subnets
                             print(f"ufw-docker-automated: Adding UFW rule: allow outgoing from container {container.name} to {destination}")
-                            subprocess.run([f"{ufw_command} allow from {container_ip} to {destination}"],
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                        shell=True)
+                            ufw_arguments = f"from {container_ip} to {destination}"
+                            add_ufw_rule(ufw_command, ufw_allow_arg, ufw_arguments)
                     # Deny any other outgoing requests
                     print(f"ufw-docker-automated: Adding UFW rule: deny outgoing from container {container.name} to any")
-                    subprocess.run([f"{ufw_command} deny from {container_ip} to any"],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                shell=True)
-
+                    ufw_arguments = f"from {container_ip} to any"
+                    add_ufw_rule(ufw_command, ufw_deny_arg, ufw_arguments)
             if event_type == 'kill' and ufw_managed == 'True':
                 if container_network == 'host':
                     for key, value in container_port_dict:
                         delete_ufw_rule(match=key, container=container)
+                    ufw_length = subprocess.run(
+                        [f"ufw status numbered | grep '(out)' | wc -l"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                        shell=True)
+
+                    for _ in range(int(ufw_length.stdout.strip().split("\n")[0])):
+                        delete_ufw_rule(match="'(out)'", container=container)
                 else:
                     ufw_length = subprocess.run(
                         [f"ufw status numbered | grep {container_ip} | wc -l"],
