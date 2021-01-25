@@ -1,0 +1,17 @@
+[Unit]
+Description=Ufw docker automated
+Documentation=https://github.com/shinebayar-g/ufw-docker-automated
+After=network-online.target ufw.service containerd.service
+Wants=network-online.target
+Requires=ufw.service
+
+[Service]
+# Script requires run as root or sudo user to manage ufw!
+User=root
+Environment=PYTHONUNBUFFERED=1
+# Path to your python executable and actual location of the script
+ExecStart=/usr/lib/ufw-docker/venv/bin/python3 -u /usr/lib/ufw-docker/automated.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
