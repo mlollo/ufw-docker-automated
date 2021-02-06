@@ -1,8 +1,27 @@
 #!/usr/bin/env python
 import re
 import subprocess
+import os
+import logging
 from ipaddress import ip_network
 
+levels = {
+    'CRITICAL': logging.CRITICAL,
+    'ERROR': logging.ERROR,
+    'WARN': logging.WARNING,
+    'WARNING': logging.WARNING,
+    'INFO': logging.INFO,
+    'DEBUG': logging.DEBUG
+}
+
+def logger_init(name):
+    logging.basicConfig(
+        level=levels.get(os.environ.get('LOG_LEVEL', 'INFO').upper()),
+        format=name+'[%(threadName)-9s]: %(message)s',
+        handlers=[logging.StreamHandler()]
+    )
+    return logging.getLogger(name)
+    
 # implementation of a get method ontop __builtins__.list class
 class _list(list):
     def get(self, index, default=None):
