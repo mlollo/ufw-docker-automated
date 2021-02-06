@@ -179,7 +179,7 @@ def manage_ufw():
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                     shell=True)
 
-                for i in range(int(ufw_length.stdout.strip().split("\n")[0])):
+                for _ in range(int(ufw_length.stdout.strip().split("\n")[0])):
                     awk = "'{print $2}'"
                     ufw_status = subprocess.run(
                         [f"ufw status numbered | grep {container_ip} | awk -F \"[][]\" {awk} "],

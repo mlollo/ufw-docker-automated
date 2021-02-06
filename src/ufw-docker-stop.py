@@ -43,7 +43,7 @@ def stop_ufw_docker():
 
         print(f"ufw-docker-automated: Cleaning UFW rule: rule_id {rule_id}")
 
-        for i in range(int(rule_num)):
+        for _ in range(int(rule_num)):
             ufw_delete = subprocess.run(
                 [f"yes y | ufw delete {rule_id}"],
                 stdout=subprocess.PIPE, 

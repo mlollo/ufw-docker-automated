@@ -63,8 +63,17 @@ sudo systemctl restart ufw
 
 **Step 3**. Install my crap
 
-Make sure you have python 3.6 and pip installed. Then you can either clone the repo or just copy the [ufw-docker-automated.py](src/ufw-docker-automated.py) file to your machine.
+<span style="text-decoration:underline">Manual install</span>
+
+  * Make sure you have python 3.6 and pip installed. Then you can either clone the repo or just copy the [ufw-docker-automated.py](src/ufw-docker-automated.py) file to your machine.
 Then install the docker SDK for python by running: `pip install docker` and you're good to go.
+
+<span style="text-decoration:underline">Script install</span> (skip step 4 and 5)
+
+  * If you use restart policy `always` or `unless-stopped` in docker-compose and you want ufw rules to be update upon restart. I'll advise this method and skip step 4 and 5. 
+```
+sudo ./install.sh
+```
 
 **Step 4**. Create new systemd service entry
 

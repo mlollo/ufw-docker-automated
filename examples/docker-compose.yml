@@ -2,7 +2,7 @@
 
 version: "2.1"
 services:
-  nginx:
+  nginx_example1:
     image: nginx:alpine
     ports:
       - "8080:80"
@@ -10,6 +10,35 @@ services:
     # This container's 80 and 81 ports will be allowed on UFW firewall
     labels:
         UFW_MANAGED: "TRUE"
+    networks:
+      - my-net
+
+  nginx_example2:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8081:81"
+    # This container's 80 and 81 ports will be allowed on UFW firewall from IPs in the subnet 192.168.0.0/24
+    labels:
+        UFW_MANAGED: "TRUE"
+        UFW_ALLOW_FROM: "192.168.0.0/24"
+    networks:
+      - my-net
+
+  nginx_example3:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8180:80"
+      - "8181:81"
+    # This container's 80 and 81 ports will be allowed on UFW firewall from IPs in the subnet 192.168.0.0/24
+    # And traffic outgoing from the container will be restricted to the whitelisted rules in UFW_ALLOW_TO label
+    # If the host restart ufw rules will be updated when the container changes IP address
+    labels:
+        UFW_MANAGED: "TRUE"
+        UFW_ALLOW_FROM: "192.168.0.0/24"
+        UFW_DENY_OUTGOING: "TRUE"
+        UFW_ALLOW_TO: "any:53;deb.debian.org:80/tcp;security.debian.org:80/tcp;192.168.2.0/24;192.168.3.0/24:tcp"
     networks:
       - my-net
 
